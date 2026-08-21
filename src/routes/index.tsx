@@ -9,13 +9,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "A simple shift handoff log for SOC teams. Record incidents, actions, and follow-ups for the next watch.",
+          "A simple shift handoff log for SOC teams. Record incidents, actions, severity, and follow-ups for the next watch.",
       },
       { property: "og:title", content: "Sentinel Log — SOC Shift Handoff" },
       {
         property: "og:description",
         content:
-          "A simple shift handoff log for SOC teams. Record incidents, actions, and follow-ups for the next watch.",
+          "A simple shift handoff log for SOC teams. Record incidents, actions, severity, and follow-ups for the next watch.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -25,11 +25,13 @@ export const Route = createFileRoute("/")({
 });
 
 type EntryStatus = "follow-up" | "resolved";
+type Severity = "low" | "medium" | "high" | "critical";
 
 interface HandoffEntry {
   id: string;
   operator: string;
   ticketId: string;
+  severity: Severity;
   incident: string;
   action: string;
   followup: string;
@@ -39,11 +41,26 @@ interface HandoffEntry {
 
 const STORAGE_KEY = "soc-handoff-entries";
 
+const SEVERITY_LABELS: Record<Severity, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  critical: "Critical",
+};
+
+const SEVERITY_ORDER: Record<Severity, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
 const initialEntries: HandoffEntry[] = [
   {
     id: "1",
     operator: "A. Chen",
     ticketId: "IDX-8841-A",
+    severity: "high",
     incident:
       "Observed multiple failed login attempts on DB-SRV-04 followed by successful access using a service account. Traffic originated from a non-standard subnet (10.4.x.x).",
     action: "Account locked, forensic snapshot initiated.",
@@ -55,6 +72,7 @@ const initialEntries: HandoffEntry[] = [
     id: "2",
     operator: "S. Varma",
     ticketId: "MAINT-442",
+    severity: "low",
     incident:
       "Standard security patches applied to the external firewall cluster. Post-patch health check successful across all nodes.",
     action: "Patches verified and rolled out to all cluster nodes.",
@@ -64,6 +82,20 @@ const initialEntries: HandoffEntry[] = [
   },
 ];
 
+function migrateEntry(entry: Partial<HandoffEntry> & Pick<HandoffEntry, "id">): HandoffEntry {
+  return {
+    operator: entry.operator || "Unknown",
+    ticketId: entry.ticketId || "—",
+    severity: (entry.severity as Severity) || "medium",
+    incident: entry.incident || "",
+    action: entry.action || "None recorded.",
+    followup: entry.followup || "None.",
+    status: entry.status === "resolved" ? "resolved" : "follow-up",
+    createdAt: entry.createdAt || new Date().toISOString(),
+    ...entry,
+  };
+}
+
 function Index() {
   const [entries, setEntries] = useState<HandoffEntry[]>(initialEntries);
   const [loaded, setLoaded] = useState(false);
@@ -71,17 +103,20 @@ function Index() {
 
   const [operator, setOperator] = useState("");
   const [ticketId, setTicketId] = useState("");
+  const [severity, setSeverity] = useState<Severity>("medium");
   const [incident, setIncident] = useState("");
   const [action, setAction] = useState("");
   const [followup, setFollowup] = useState("");
+
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as HandoffEntry[];
+        const parsed = JSON.parse(raw) as Array<Partial<HandoffEntry> & Pick<HandoffEntry, "id">>;
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setEntries(parsed);
+          setEntries(parsed.map(migrateEntry));
         }
       }
     } catch {
@@ -99,10 +134,23 @@ function Index() {
     }
   }, [entries, loaded]);
 
-  const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [entries],
-  );
+  const filteredAndSortedEntries = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return [...entries]
+      .filter((entry) => (term ? entry.ticketId.toLowerCase().includes(term) : true))
+      .sort((a, b) => {
+        // Follow-up entries first, then resolved.
+        if (a.status !== b.status) {
+          return a.status === "follow-up" ? -1 : 1;
+        }
+        // Higher severity first.
+        if (SEVERITY_ORDER[b.severity] !== SEVERITY_ORDER[a.severity]) {
+          return SEVERITY_ORDER[b.severity] - SEVERITY_ORDER[a.severity];
+        }
+        // Newest first.
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [entries, search]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,6 +160,7 @@ function Index() {
       id: crypto.randomUUID(),
       operator: operator.trim(),
       ticketId: ticketId.trim() || "—",
+      severity,
       incident: incident.trim(),
       action: action.trim() || "None recorded.",
       followup: followup.trim() || "None.",
@@ -122,6 +171,7 @@ function Index() {
     setEntries((prev) => [newEntry, ...prev]);
     setOperator("");
     setTicketId("");
+    setSeverity("medium");
     setIncident("");
     setAction("");
     setFollowup("");
@@ -168,7 +218,7 @@ function Index() {
 
           <form
             onSubmit={handleSubmit}
-            className="bg-card ring-1 ring-black/5 rounded-xl p-6 shadow-sm mb-16"
+            className="bg-card ring-1 ring-black/5 rounded-xl p-6 shadow-sm mb-12"
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <div className="space-y-1.5">
@@ -197,6 +247,26 @@ function Index() {
                   placeholder="IDX-9022-B"
                   className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm font-mono focus:outline-none focus:ring-1 focus:ring-accent/50 placeholder:text-muted-foreground/40"
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              <div className="space-y-1.5">
+                <label htmlFor="severity" className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground ml-1">
+                  Severity
+                </label>
+                <select
+                  id="severity"
+                  value={severity}
+                  onChange={(e) => setSeverity(e.target.value as Severity)}
+                  className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-accent/50 placeholder:text-muted-foreground/40 appearance-none cursor-pointer"
+                >
+                  {Object.entries(SEVERITY_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -258,23 +328,43 @@ function Index() {
         </section>
 
         <section className="space-y-8">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center gap-4">
             <div className="h-px flex-1 bg-border" />
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Shift History // {sortedEntries.length} {sortedEntries.length === 1 ? "Entry" : "Entries"}
+            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+              Shift History // {filteredAndSortedEntries.length} {filteredAndSortedEntries.length === 1 ? "Entry" : "Entries"}
             </span>
             <div className="h-px flex-1 bg-border" />
           </div>
 
-          {sortedEntries.length === 0 ? (
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by alert ID or ticket number..."
+                className="w-full pl-3 pr-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-accent/50 placeholder:text-muted-foreground/40 font-mono"
+              />
+            </div>
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="px-3 py-2 text-[10px] uppercase font-semibold tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {filteredAndSortedEntries.length === 0 ? (
             <div className="text-center py-16">
               <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                No entries logged for this shift.
+                {search ? "No entries match that alert ID." : "No entries logged for this shift."}
               </p>
             </div>
           ) : (
             <div className="space-y-8">
-              {sortedEntries.map((entry, index) => (
+              {filteredAndSortedEntries.map((entry, index) => (
                 <EntryCard
                   key={entry.id}
                   entry={entry}
@@ -291,7 +381,7 @@ function Index() {
         <div className="bg-foreground text-background px-3 py-1.5 rounded-sm flex items-center gap-4 shadow-xl">
           <span className="font-mono text-[9px] tracking-widest">SYSTEM STATUS: NOMINAL</span>
           <div className="size-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
-          {sortedEntries.length > 0 && (
+          {entries.length > 0 && (
             <button
               onClick={handleClear}
               className="font-mono text-[9px] tracking-widest text-background/70 hover:text-background underline underline-offset-2"
@@ -307,8 +397,26 @@ function Index() {
 
 function EntryCard({ entry, index, onToggleStatus }: { entry: HandoffEntry; index: number; onToggleStatus: () => void }) {
   const isResolved = entry.status === "resolved";
-  const accentBar = isResolved ? "bg-primary" : "bg-accent";
+  const isCritical = entry.severity === "critical";
+  const isHigh = entry.severity === "high";
+
+  const accentBar = isResolved ? "bg-primary" : isCritical ? "bg-destructive" : isHigh ? "bg-destructive/70" : "bg-accent";
+  const ticketColor = isResolved ? "text-primary" : isCritical ? "text-destructive" : isHigh ? "text-destructive/80" : "text-accent";
   const opacity = isResolved ? "opacity-80" : "opacity-100";
+
+  const statusBadge = isResolved
+    ? "bg-primary text-primary-foreground"
+    : isCritical
+      ? "bg-destructive text-destructive-foreground"
+      : "bg-accent text-accent-foreground";
+
+  const severityBadge = isCritical
+    ? "bg-destructive text-destructive-foreground"
+    : isHigh
+      ? "bg-destructive/15 text-destructive"
+      : entry.severity === "medium"
+        ? "bg-accent/15 text-accent"
+        : "bg-primary/10 text-primary";
 
   return (
     <article
@@ -319,9 +427,12 @@ function EntryCard({ entry, index, onToggleStatus }: { entry: HandoffEntry; inde
       <div className="bg-card ring-1 ring-black/5 rounded-xl p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 mb-6">
           <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <span className={`font-mono text-xs font-medium ${isResolved ? "text-primary" : "text-accent"}`}>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className={`font-mono text-xs font-medium ${ticketColor}`}>
                 {entry.ticketId}
+              </span>
+              <span className={`px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider rounded-sm ${severityBadge}`}>
+                {SEVERITY_LABELS[entry.severity]}
               </span>
               <span className="text-[10px] font-mono text-muted-foreground uppercase">
                 {format(new Date(entry.createdAt), "HH:mm 'UTC'")}
@@ -331,11 +442,7 @@ function EntryCard({ entry, index, onToggleStatus }: { entry: HandoffEntry; inde
           </div>
           <div className="flex flex-col items-start sm:items-end gap-2">
             <span
-              className={`px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded-sm ${
-                isResolved
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-accent text-accent-foreground"
-              }`}
+              className={`px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded-sm ${statusBadge}`}
             >
               {isResolved ? "Resolved" : "Follow-Up Required"}
             </span>
