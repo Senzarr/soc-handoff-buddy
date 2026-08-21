@@ -213,7 +213,7 @@ function Index() {
         <section className="animate-in">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-display text-sm uppercase tracking-wider cursor-blink">New Shift Entry</h2>
-            <span className="font-mono text-[10px] text-muted-foreground">{format(now, "HH:mm:ss")} UTC</span>
+            <span className="font-mono text-[10px] text-muted-foreground" suppressHydrationWarning>{format(now, "HH:mm:ss")} UTC</span>
           </div>
 
           <form
