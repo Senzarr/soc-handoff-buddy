@@ -324,7 +324,7 @@ function EntryCard({ entry, index, onToggleStatus }: { entry: HandoffEntry; inde
                 {entry.ticketId}
               </span>
               <span className="text-[10px] font-mono text-muted-foreground uppercase">
-                {format(new Date(entry.createdAt), "HH:mm UTC")}
+                {format(new Date(entry.createdAt), "HH:mm 'UTC'")}
               </span>
             </div>
             <h3 className="font-display text-lg tracking-tight">{entry.incident.split(".")[0]}</h3>
