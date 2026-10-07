@@ -1,6 +1,6 @@
 # SOC Handoff Log
 
-"Build me a simple shift handoff log for a SOC team. I want a page where I can add a note with: my name, the time, an alert ID or ticket number, what happened, what I did about it, and what still needs follow-up. Show all notes in a list, newest first, with a way to mark something as 'resolved' or 'needs follow-up'. Simple, clean design."
+"A a simple shift handoff log for a SOC team. I want a page where I can add a note with: my name, the time, an alert ID or ticket number, what happened, what I did about it, and what still needs follow-up. Show all notes in a list, newest first, with a way to mark something as 'resolved' or 'needs follow-up'. Simple, clean design."
 
 This project was built with [Lovable](https://lovable.dev).
 
